@@ -7,6 +7,29 @@ import numpy as np
 PayoffFunction = Callable[..., float]
 ActionSet = list[tuple[float, float]]
 
+
+MAX_STEPS: int = 0xFFFFFFFF
+
+
+@dataclass
+class EstimateHistory:
+    state_history: np.ndarray
+    action_history: np.ndarray
+    payoff_history: np.ndarray
+
+    def __post_init__(self):
+        if self.state_history.ndim != 2:
+            raise ValueError("state_history must be a 2D array.")
+        if self.action_history.ndim != 2:
+            raise ValueError("action_history must be a 2D array.")
+        if self.payoff_history.ndim != 2:
+            raise ValueError("payoff_history must be a 2D array.")
+
+        if self.state_history.shape != self.action_history.shape:
+            raise ValueError("state_history and action_history must have the same shape.")
+        if self.state_history.shape[0] != self.payoff_history.shape[0]:
+            raise ValueError("state_history and payoff_history must have the same number of rows.")
+
 @dataclass
 class Game:
     N: int
@@ -32,7 +55,7 @@ class NEEstimator(ABC):
     @abstractmethod
     def estimate(
         self, initial_actions: np.ndarray, **kwargs
-    ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    ) -> EstimateHistory:
         pass
 
     @classmethod

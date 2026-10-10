@@ -1,4 +1,4 @@
-from .common import Game, ActionSet, PayoffFunction, NEEstimator
+from .common import Game, ActionSet, PayoffFunction, NEEstimator, EstimateHistory, MAX_STEPS
 from .ne_seeking import NESeeking
 from .zo_gradient_play import ZOGrandientPlay
 from .game_ensemble import QuadraticGame, QuadraticGameGenerator, generate_quadratic_games
@@ -9,6 +9,8 @@ __all__ = [
     "ActionSet",
     "PayoffFunction",
     "NEEstimator",
+    "EstimateHistory",
+    "MAX_STEPS",
     "NESeeking",
     "ZOGrandientPlay",
     "QuadraticGame",

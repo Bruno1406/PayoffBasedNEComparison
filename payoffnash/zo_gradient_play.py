@@ -1,13 +1,14 @@
 from typing import Optional
 import numpy as np
+import time
 
 try:
-    from .common import ActionSet, Game, NEEstimator, PayoffFunction
+    from .common import ActionSet, Game, NEEstimator, PayoffFunction, EstimateHistory, MAX_STEPS
 except (ImportError, ValueError):
     try:
-        from payoffnash.common import ActionSet, Game, NEEstimator, PayoffFunction
+        from payoffnash.common import ActionSet, Game, NEEstimator, PayoffFunction, EstimateHistory, MAX_STEPS
     except ImportError:
-        from common import ActionSet, Game, NEEstimator, PayoffFunction
+        from common import ActionSet, Game, NEEstimator, PayoffFunction, EstimateHistory, MAX_STEPS
 
 
 class ZOGrandientPlay(NEEstimator):
@@ -29,15 +30,11 @@ class ZOGrandientPlay(NEEstimator):
         v: float = 3.0,
         a: float = 1.0,
         epsilon: float = 1e-6,
-        estimation_type: str = "one-point",
     ):
         self.game = game
         self.v = v
         self.a = a
         self.epsilon = epsilon
-        if estimation_type not in ("one-point", "two-point"):
-            raise ValueError("estimation_type must be either 'one-point' or 'two-point'.")
-        self.estimation_type = estimation_type
 
         self.m = len(game.action_sets[0])
         self.total_dim = game.N * self.m
@@ -54,26 +51,61 @@ class ZOGrandientPlay(NEEstimator):
     def estimate(
         self,
         initial_actions: np.ndarray,
-        max_rel_error: Optional[float] = None,
-        N_iters: Optional[int] = None,
-        num_steps: Optional[int] = None,
-        num_iters: Optional[int] = None,
+        max_rel_error: float = 0.0,
+        num_steps: int = MAX_STEPS,
+        time_limit: float = np.inf,
         **kwargs,
-    ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-        iters = N_iters if N_iters is not None else (num_iters if num_iters is not None else num_steps)
-        state = np.asarray(initial_actions, dtype=float).reshape(self.game.N, self.m).copy()
-        action_history_list = []
-        payoff_history_list = []
+    ) -> EstimateHistory:
+        if (max_rel_error == 0.0) and num_steps == MAX_STEPS and time_limit == np.inf:
+            raise ValueError("At least one stopping criterion must be specified: max_rel_error, num_steps, or time_limit.")
 
-        flat_nash_estimate = np.full(self.total_dim, np.inf, dtype=float)
+        track_time = (time_limit != np.inf)
+        track_error = (max_rel_error > 0.0)
+
+        history_length = 10000 if num_steps == MAX_STEPS else num_steps + 1
+        total_dim = self.game.N * self.m
+
+        state_history = np.empty((history_length, total_dim), dtype=float)
+        action_history = np.empty((history_length, total_dim), dtype=float)
+        payoff_history = np.empty((history_length, self.game.N), dtype=float)
+
+        state = np.asarray(initial_actions, dtype=float).reshape(self.game.N, self.m).copy()
+        flat_state0 = state.ravel()
+
+        state_history[0, :] = flat_state0
+        action_history[0, :] = flat_state0
+        payoff_history[0, :] = np.array([self.game.payoff_functions[i](*flat_state0) for i in range(self.game.N)], dtype=float)
+
+        flat_prev_state = flat_state0.copy() if track_error else None
         rel_error = np.inf
+        start_time = time.time() if track_time else 0.0
+        elapsed_time = 0.0
         t = 1
 
-        continue_condition = (
-            lambda: rel_error > max_rel_error if max_rel_error is not None else t <= iters
-        )
+        while True:
+            if t > num_steps:
+                break
+            if track_time and elapsed_time >= time_limit:
+                break
+            if track_error and rel_error <= max_rel_error:
+                break
 
-        while continue_condition():
+            if t >= history_length:
+                new_length = history_length * 2
+                new_action_history = np.empty((new_length, total_dim), dtype=float)
+                new_action_history[:history_length, :] = action_history
+                action_history = new_action_history
+
+                new_payoff_history = np.empty((new_length, self.game.N), dtype=float)
+                new_payoff_history[:history_length, :] = payoff_history
+                payoff_history = new_payoff_history
+
+                new_state_history = np.empty((new_length, total_dim), dtype=float)
+                new_state_history[:history_length, :] = state_history
+                state_history = new_state_history
+
+                history_length = new_length
+
             sigma = self.a / np.power(t, 0.25)
             gama = 4.0 / (self.v * t)
             rho = 1.0 / np.power(t, 0.25 - self.epsilon)
@@ -82,31 +114,36 @@ class ZOGrandientPlay(NEEstimator):
             samples = np.random.normal(state, sigma)
             actions = np.clip(samples, self.lb, self.ub)
             flat_actions = actions.ravel()
-            action_history_list.append(flat_actions)
+            action_history[t, :] = flat_actions
 
             payoffs = np.array([self.game.payoff_functions[i](*flat_actions) for i in range(self.game.N)], dtype=float)
-            payoff_history_list.append(payoffs)
+            payoff_history[t, :] = payoffs
 
-            if self.estimation_type == "two-point":
-                flat_state = state.ravel()
-                p_mu = np.array([self.game.payoff_functions[i](*flat_state) for i in range(self.game.N)], dtype=float)
-                grad_est = ((payoffs - p_mu)[:, None] * (samples - state)) / (sigma**2)
-            else:
-                grad_est = (payoffs[:, None] * (samples - state)) / (sigma**2)
+            grad_est = (payoffs[:, None] * (samples - state)) / (sigma**2)
 
             delta = (self.sizes / 2.0) * shrink_factor
             reg_lb = self.midpoints - delta
             reg_ub = self.midpoints + delta
             state = np.clip(state + gama * grad_est, reg_lb, reg_ub)
-
             flat_state = state.ravel()
-            diff_norm = np.linalg.norm(flat_state - flat_nash_estimate)
-            prev_norm = np.linalg.norm(flat_nash_estimate)
-            rel_error = diff_norm if np.isinf(prev_norm) else diff_norm / (prev_norm + 1e-12)
-            flat_nash_estimate = flat_state.copy()
+            state_history[t, :] = flat_state
+
+            if track_error:
+                diff_norm = np.linalg.norm(flat_state - flat_prev_state)
+                prev_norm = np.linalg.norm(flat_prev_state)
+                rel_error = float(diff_norm if np.isinf(prev_norm) else diff_norm / (prev_norm + 1e-12))
+                flat_prev_state = flat_state.copy()
+
+            if track_time and (t % 100 == 0):
+                elapsed_time = time.time() - start_time
+
             t += 1
 
-        return state, np.array(action_history_list), np.array(payoff_history_list)
+        return EstimateHistory(
+            state_history=state_history[:t],
+            action_history=action_history[:t],
+            payoff_history=payoff_history[:t]
+        )
 
 
 if __name__ == "__main__":
@@ -131,16 +168,9 @@ if __name__ == "__main__":
     initial_actions = np.array([[10.0], [30.0]])
 
     print("Starting estimation for the paper's duopoly price game (one-point)...")
-    nash_estimate, _, _ = estimator.estimate(initial_actions, N_iters=10000)
+    history = estimator.estimate(initial_actions, num_steps=100000, max_rel_error=1e-7)
 
     print(f"\nEstimated Nash Equilibrium (one-point):")
-    print(f"Firm 1 Price (u1): {nash_estimate[0]}")
-    print(f"Firm 2 Price (u2): {nash_estimate[1]}")
+    print(f"Firm 1 Price (u1): {history.state_history[-1][0]}")
+    print(f"Firm 2 Price (u2): {history.state_history[-1][1]}")
     print("(Expected theoretical exact result: 43.3333, 36.6666)")
-
-    estimator_2p = ZOGrandientPlay(game, v=3, a=100, epsilon=1e-6, estimation_type="two-point")
-    print("\nStarting estimation for the paper's duopoly price game (two-point)...")
-    nash_estimate_2p, _, _ = estimator_2p.estimate(initial_actions, N_iters=10000)
-    print(f"\nEstimated Nash Equilibrium (two-point):")
-    print(f"Firm 1 Price (u1): {nash_estimate_2p[0]}")
-    print(f"Firm 2 Price (u2): {nash_estimate_2p[1]}")

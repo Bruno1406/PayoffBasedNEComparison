@@ -113,12 +113,13 @@ class TestGameEnsemble(unittest.TestCase):
         games = generate_quadratic_games(ensemble_size=1, N=2, m=1, alpha=0.05, seed=10)
         game = games[0]
 
-        estimator = ZOGrandientPlay(game, v=3.0, a=0.5, epsilon=1e-4, estimation_type="two-point")
+        np.random.seed(42)
+        estimator = ZOGrandientPlay(game, v=5.0, a=0.8, epsilon=1e-4)
         initial_actions = np.array([[0.0], [0.0]])
-        est_ne, _, _ = estimator.estimate(initial_actions, N_iters=4000)
+        history = estimator.estimate(initial_actions, num_steps=6000)
 
-        est_flat = est_ne.ravel()
-        true_flat = game.nash_equilibrium
+        est_flat = np.mean(history.state_history[-50:], axis=0).ravel()
+        true_flat = game.nash_equilibrium.ravel()
         error = np.linalg.norm(est_flat - true_flat)
         self.assertLess(error, 0.15)
 
@@ -131,13 +132,12 @@ class TestGameEnsemble(unittest.TestCase):
             k=np.array([[5.0], [5.0]]),
             a=np.array([[0.15], [0.15]]),
             omega=np.array([[25.0], [31.0]]),
-            phi=np.array([[0.0], [0.0]]),
             dt=0.005,
         )
         initial_u_hat = np.array([[0.0], [0.0]])
-        est_ne, _, _ = estimator.estimate(initial_u_hat, num_steps=20000)
+        history = estimator.estimate(initial_u_hat, num_steps=20000)
 
-        est_flat = est_ne.ravel()
+        est_flat = history.state_history[-1].ravel()
         true_flat = game.nash_equilibrium
         error = np.linalg.norm(est_flat - true_flat)
         self.assertLess(error, 0.15)

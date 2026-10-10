@@ -17,110 +17,121 @@ Using `QuadraticGameGenerator` from [`payoffnash/game_ensemble.py`](file:///home
 
 ---
 
-### 2. Algorithmic Configurations & Metaparameter Search Spaces
+### 2. Algorithmic Configurations, Search Spaces & Generalized Regret Cost
 
-#### A. Zero-Order Gradient Play (`ZOGrandientPlay`)
+#### A. Generalized Logarithmic Total Regret Cost Function
+For any game in the ensemble with symmetric/asymmetric coupling $H \in \mathbb{R}^{2 \times 2}$, linear terms $d \in \mathbb{R}^2$, and bounded action box $[\text{lb}, \text{ub}]$, player $i$'s unconstrained best response to opponent actions $u_{-i}$ is:
+$$u_i^{\text{unc}}(u_{-i}) = -H_{ii}^{-1} \left(H_{ij} u_j + d_i\right)$$
+Projected onto the action interval:
+$$u_i^*(u_{-i}) = \text{clip}\left(u_i^{\text{unc}}(u_{-i}), \; \text{lb}_i, \; \text{ub}_i\right)$$
+The instantaneous regret at step $t$ is the payoff lost relative to the best response:
+$$R_i(t) = J_i(u_i^*(u_{-i}(t)), u_{-i}(t)) - J_i(u_i(t), u_{-i}(t)) \ge 0$$
+Over a simulation length of $T = 10,000$ steps ($10,001$ history states), MTBO minimizes the logarithmic total systemic regret:
+$$\text{Cost}(g, \text{history}) = \log_{10}\left(\max\left(\sum_{t=0}^T \sum_{i=1}^N R_i(t), \; 10^{-12}\right)\right)$$
+
+#### B. Zero-Order Gradient Play (`ZOGrandientPlay`)
 * **Reference:** Tatarenko & Kamgarpour (2022).
 * **Estimation Type:** Strictly `"one-point"` (single payoff query per player per step).
-* **Search Space:**
-  - $v \in [0.5, 10.0]$: Gradient step-size gain.
-  - $a \in [0.01, 1.0]$: Random exploration perturbation variance $\sigma_k = \frac{a}{(k+1)^{1/6}}$.
+* **Search Space (2 Continuous Dimensions):**
+  - $v \in [0.01, 100.0]$: Gradient step-size gain.
+  - $a \in [0.01, 100.0]$: Random exploration perturbation variance.
 * **Fixed Parameters:**
-  - `estimation_type`: `"one-point"`.
   - `epsilon`: $10^{-4}$ (decay stabilization parameter).
-* **Simulation Length:** $N_{\text{iter}} = 3000$ steps.
-* **Loss Metric Window:** $K = 50$ steps moving average equilibrium error.
+  - `estimation_type`: `"one-point"`.
+* **Simulation Length:** `num_steps = 10000`.
 
-#### B. Continuous-Time Nash Equilibrium Seeking (`NESeeking`)
+#### C. Continuous-Time Nash Equilibrium Seeking (`NESeeking`)
 * **Reference:** Frihauf, Krstic, & Basar (2012).
-* **Search Space:**
-  - $k \in [0.1, 5.0]$: Integrator gain (broadcast across players to shape $(2, 1)$).
-  - $a \in [0.01, 0.5]$: Dither perturbation amplitude (broadcast across players to shape $(2, 1)$).
+* **Search Space (8 Continuous Dimensions, Player-Specific in $[0.01, 100.0]$):**
+  - Integration gains: $k[0,0], k[1,0] \in [0.01, 100.0]$
+  - Perturbation amplitudes: $a[0,0], a[1,0] \in [0.01, 100.0]$
+  - Dither frequencies: $\omega[0,0], \omega[1,0] \in [0.01, 100.0]$
+  - Washout cutoff frequencies: $\omega_h[0], \omega_h[1] \in [0.01, 100.0]$
 * **Fixed Parameters:**
-  - `omega`: $\begin{bmatrix} 25.0 \\ 31.0 \end{bmatrix}$ (distinct dither perturbation frequencies for players 1 and 2).
-  - `phi`: $\begin{bmatrix} 0.0 \\ 0.0 \end{bmatrix}$ (phase shifts).
-  - `dt`: $0.005$ (forward Euler integration timestep).
-* **Simulation Length:** $N_{\text{iter}} = 3000$ steps.
-* **Loss Metric Window:** $K = 50$ steps moving average equilibrium error.
+  - `dt`: $0.001$ (forward Euler integration timestep).
+* **Simulation Length:** `num_steps = 10000`.
 
 ---
 
-### 3. MTBO Execution Plan & 2–3 Hour Overnight Budgeting
+### 3. MTBO Execution Plan & Early Stopping Budgeting
 
 Using active task-selecting MTBO ([`MetaParamOptimization`](file:///home/bruno/Documents/PayoffBasedNEComparison/payoffnash/mtbo.py)):
 * **Active Task Selection:** In each BO iteration, Swersky's two-step heuristic queries a single game $t^* \in \{0, \dots, 99\}$ and hyperparameter $x^*$, running **only 1 simulation** per BO step.
 * **Initial Quasi-Random Phase:** $n_{\text{init}} = 100$ points via Latin Hypercube Sampling, systematically paired with tasks $t_i = i \pmod{100}$ so that each of the 100 games has at least 1 evaluated baseline for the initial task covariance kernel.
-* **Sequential BO Phase:** $n_{\text{bo_steps}} = 500$ sequential queries per algorithm.
-* **Runtime Estimation:**
-  - Simulation cost ($N_{\text{iter}} = 3000$): $\approx 0.10\text{ s}$ (`ZOGrandientPlay`), $\approx 0.25\text{ s}$ (`NESeeking`).
-  - GP surrogate fit & acquisition: $\approx 1.5 - 3.0\text{ s}$ per query.
-  - Per query total: $\approx 2.0 - 3.2\text{ s}$.
-  - Total queries per algorithm: $100 + 500 = 600$ queries.
-  - Estimated duration per algorithm: $600 \times 2.5\text{ s} \approx 1500\text{ s} \approx 25 - 40\text{ minutes}$ per algorithm.
-  - Total combined runtime for both algorithms: $\approx 1.2 - 2.0\text{ hours}$ (safely within the 2–3 hour target window).
-* **Artifact Export:**
-  - `zo_optimal_metaparams.csv`
-  - `ne_optimal_metaparams.csv`
+* **Mathematical Convergence & Budget Ceiling Configuration:**
+  - `eps_ei`: $10^{-4}$ ($0.0001$), Expected Improvement convergence threshold on $\max_x \text{EI}_{\text{avg}}(x)$.
+  - `ei_window`: $3$ consecutive steps sustaining $\max_x \text{EI}_{\text{avg}} < 10^{-4}$ to confirm spatial convergence.
+  - `min_bo_steps`: Baseline exploration floor of $\max(20, M // 2) = 50$ steps before early stopping is activated.
+  - `max_bo_steps`: Automatically set via the dimension- and task-scaling heuristic $\min(M \cdot \max(5, 2 \cdot d), 1500)$ ($500$ for `ZOGrandientPlay`, $1500$ for `NESeeking`) when set to `None`.
+* **Surrogate Model & Warm-Starting:**
+  - Persistent `MultiTaskGP` surrogate fitted once initially (`maxiter=30`), updated via `set_train_data(train_x, targets, strict=False)` and warm-started (`maxiter=10`) on every subsequent step.
+  - Adaptive garbage collection interval $K(100) = 25$ steps.
+* **One-Shot Post-BO Verification Safeguard:**
+  - Surrogate-proposed game-specific candidate parameters $\hat{\theta}_j^*$ are empirically verified on game $j$. If $y_{\text{ver}, j} \le y^*_{\text{anchor}, j}$, the candidate is accepted; otherwise falls back to observed anchor $\theta^*_{\text{anchor}, j}$.
+* **Artifact Directory:** `data/03_100_games_regret/`
+  - `zo_100_games_results.csv`
+  - `ne_100_games_results.csv`
 
 ---
 
-### 4. Automated Selection of 5 Diverse Representative Games
+### 4. Automated Selection & Optuna Baseline on 5 Diverse Representative Games
 
-Because plotting 100 games produces visual clutter, 5 representative games must be selected programmatically from the 100-game ensemble using objective geometric and algebraic criteria:
+#### A. Geometric Selection of 5 Representative Games
+Because plotting 100 games produces visual clutter, 5 representative games are selected programmatically from the 100-game ensemble using objective geometric and algebraic criteria:
+1. **Game 1 (Extreme Ill-Conditioned):** Maximizes $\kappa(H_{\text{sym}}) = \lambda_{\max} / \lambda_{\min}$.
+2. **Game 2 (Well-Behaved / Isotropic):** Minimizes condition number $\kappa(H_{\text{sym}}) \approx 1.0$.
+3. **Game 3 (Narrow Action Space):** Minimizes bounding box volume $\prod (ub - lb)$.
+4. **Game 4 (Highly Asymmetric Coupling):** Maximizes anti-symmetric norm $\|H - H^T\|_F$.
+5. **Game 5 (Boundary-Adjacent Equilibrium):** Minimizes distance of true NE $u^*$ to bounds.
 
-1. **Game 1 (Extreme Ill-Conditioned):**
-   - Criterion: Maximizes the condition number of the symmetrized Hessian:
-     $$\kappa(H_{\text{sym}}) = \frac{\lambda_{\max}(H_{\text{sym}})}{\lambda_{\min}(H_{\text{sym}})}$$
-   - Role: Tests algorithm robustness under severe directional curvature distortion and slow convergence modes.
-2. **Game 2 (Well-Behaved / Isotropic):**
-   - Criterion: Minimizes condition number $\kappa(H_{\text{sym}}) \approx 1.0$.
-   - Role: Evaluates baseline convergence in an ideal, uniformly curved game space.
-3. **Game 3 (Narrow Action Space):**
-   - Criterion: Minimizes the bounding box hypervolume $\prod_{p=1}^N \prod_{d=1}^m (ub_{p,d} - lb_{p,d})$.
-   - Role: Stresses boundary projection dynamics and boundary-clipping oscillations.
-4. **Game 4 (Highly Asymmetric Cross-Coupling):**
-   - Criterion: Maximizes the anti-symmetric off-diagonal Frobenius norm:
-     $$\|H - H^T\|_F$$
-   - Role: Stresses rotational dynamics, non-conservative pseudogradient flow, and inter-player coupling.
-5. **Game 5 (Boundary-Adjacent Equilibrium):**
-   - Criterion: Minimizes distance of the true Nash equilibrium $u^*$ to the action boundaries:
-     $$\min_{p, d} \min(u_{p, d}^* - lb_{p, d}, ub_{p, d} - u_{p, d}^*)$$
-   - Role: Tests if exploration noise causes premature boundary saturation or bias near constraints.
+#### B. Per-Game Optuna Baseline Optimization
+To verify both the universal average prediction and individual game-specific optima, run an independent Optuna TPE optimization on each of the 5 representative games:
+* **Algorithms:** Evaluated for both `ZOGrandientPlay` (2D) and `NESeeking` (8D).
+* **Search Space:** Identical $[0.01, 100.0]$ bounds.
+* **Objective:** Direct single-game simulation minimizing $\log_{10}(\text{Total Regret})$ over 10,000 steps.
+* **Stopping Criteria:** Optuna early stopping callback with `patience = 25`, `tau = 0.005` ($0.5\%$), and `max_trials = 150`.
+* **Output:** Saves `optuna_rep_games_summary.csv` in `data/03_100_games_regret/`.
 
 ---
 
-### 5. Action-Only Visualization Architecture
+### 5. Action Trajectory Visualization Architecture
 
-In [`analysis.ipynb`](file:///home/bruno/Documents/PayoffBasedNEComparison/analysis.ipynb):
-* **Plot Actions Only:** Exclude payoff curves completely to prevent clutter.
-* **Layout:** For each of the 5 selected representative games, generate a dedicated 2x2 subplot figure:
-  - **Top-Left (Row 1, Col 1):** Player 1 Action $u_1(t)$ under **Game-Specific Optimum $\theta_j^*$**.
-    - Solid blue trajectory: $u_1(t)$.
-    - Dashed black line: True Nash Equilibrium $u_1^*$.
-  - **Top-Right (Row 1, Col 2):** Player 1 Action $u_1(t)$ under **Universal Default Optimum $\theta_{\text{default}}^*$**.
-    - Solid orange trajectory: $u_1(t)$.
-    - Dashed black line: True Nash Equilibrium $u_1^*$.
-  - **Bottom-Left (Row 2, Col 1):** Player 2 Action $u_2(t)$ under **Game-Specific Optimum $\theta_j^*$**.
-    - Solid blue trajectory: $u_2(t)$.
-    - Dashed black line: True Nash Equilibrium $u_2^*$.
-  - **Bottom-Right (Row 2, Col 2):** Player 2 Action $u_2(t)$ under **Universal Default Optimum $\theta_{\text{default}}^*$**.
-    - Solid orange trajectory: $u_2(t)$.
-    - Dashed black line: True Nash Equilibrium $u_2^*$.
-* **Title & Annotation:** Include game category, condition number $\kappa(H_{\text{sym}})$, distance to boundary, and final average error values in the figure title or subtitle.
+For each of the 5 representative games, generate a 2x2 subplot trajectory comparison over 10,000 steps:
+* **Top-Left (Row 1, Col 1):** Player 1 Action $u_1(t)$ under **MTBO Game-Specific Optimum $\theta_j^*$**.
+* **Top-Right (Row 1, Col 2):** Player 1 Action $u_1(t)$ under **MTBO Universal Default Optimum $\theta_{\text{default}}^*$**.
+* **Bottom-Left (Row 2, Col 1):** Player 2 Action $u_2(t)$ under **MTBO Game-Specific Optimum $\theta_j^*$**.
+* **Bottom-Right (Row 2, Col 2):** Player 2 Action $u_2(t)$ under **MTBO Universal Default Optimum $\theta_{\text{default}}^*$**.
+*(Overlaid with Optuna best trajectory and dashed black line for true NE $u^*$).*
 
 ---
 
 ### 6. Quantitative Analysis & Reporting
 
 At the conclusion of the notebook:
-1. **Comparative Summary Table:**
-   - Display a Pandas DataFrame containing:
-     - Game Index & Category (Ill-conditioned, Isotropic, Narrow, Asymmetric, Boundary-adjacent).
-     - True NE coordinates $[u_1^*, u_2^*]$.
-     - Game-Specific Optimum $\theta_j^*$ and achieved error $g_j(\theta_j^*)$.
-     - Universal Default Optimum $\theta_{\text{default}}^*$ and achieved error $g_j(\theta_{\text{default}}^*)$.
-     - Tunability Gain: $\Delta g_j = g_j(\theta_{\text{default}}^*) - g_j(\theta_j^*)$.
-2. **Ensemble Statistics:**
-   - Report mean, median, standard deviation, and maximum equilibrium distance across all 100 games under default vs. tailored parameters.
-3. **Artifact Summary Report:**
-   - Write a detailed report markdown file comparing both algorithms to the artifacts directory.
+1. **Representative Games Comparison Table:**
+   - Display a Pandas DataFrame comparing achieved total regret across:
+     - Optuna Tailored Optima (direct ground truth baseline)
+     - MTBO Tailored Optima $\theta_j^*$
+     - MTBO Universal Default $\theta_{\text{default}}^*$
+2. **Ensemble Statistics across All 100 Games:**
+   - Evaluate `evaluate_task` (10,000 steps) for both tailored and default parameters across all 100 games.
+   - Report mean, median, standard deviation, and maximum regret.
+   - Quantify the empirical **Tunability Index**:
+     $$\Delta \text{Loss}_j = \text{Loss}_j(\theta_{\text{default}}^*) - \text{Loss}_j(\theta_j^*)$$
+3. **Training Time Benchmarking & 100-Game Optuna Extrapolation:**
+   - Record exact wall-clock training durations:
+     - MTBO total execution time ($T_{\text{MTBO}}$) for both `ZOGrandientPlay` and `NESeeking`.
+     - Optuna total execution time across the 5 representative games ($T_{\text{Optuna, 5}}$).
+   - Extrapolate the total computational time to optimize all 100 games individually with Optuna:
+     $$T_{\text{Optuna, 100}}^{\text{extrap}} = \frac{100}{5} \times T_{\text{Optuna, 5}} = 20 \times T_{\text{Optuna, 5}}$$
+   - Compute computational speedup/efficiency ratio:
+     $$\text{Speedup Factor} = \frac{T_{\text{Optuna, 100}}^{\text{extrap}}}{T_{\text{MTBO}}}$$
+   - Compare total simulation queries required: MTBO active task sampling vs 100 independent Optuna studies.
+4. **Automated Morning Markdown Report (`100_games_comparative_report.md`):**
+   - Automatically compile and write a structured executive report to `data/03_100_games_regret/100_games_comparative_report.md`.
+   - Sections:
+     - **Executive Summary:** Overview of results and key takeaways.
+     - **Computational Efficiency & Timing Benchmark:** MTBO runtime vs. 100-game Optuna extrapolation, speedup ratios, and query budgets.
+     - **Representative Games Analysis:** Ground-truth Optuna loss vs. MTBO Tailored vs. MTBO Universal Default.
+     - **100-Game Ensemble Statistics & Tunability:** Mean, median, std, max, and Tunability Index distributions.
+     - **Strategic Recommendation:** Rigorous evaluation of whether to retain MTBO or adopt individual Optuna tuning for final thesis benchmarks.
