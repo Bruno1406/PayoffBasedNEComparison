@@ -62,3 +62,37 @@ class NEEstimator(ABC):
     @abstractmethod
     def get_param_specs(cls, game: Game) -> dict[str, tuple[int, ...]]:
         pass
+
+
+def quadratic_game_regret_cost(game: Any, history: EstimateHistory) -> float:
+    actions = history.action_history
+    H = game.H
+    d = game.d
+    lb = np.array([[iv[0] for iv in s] for s in game.action_sets]).ravel()
+    ub = np.array([[iv[1] for iv in s] for s in game.action_sets]).ravel()
+
+    u0 = actions[:, 0]
+    u1 = actions[:, 1]
+
+    u0_unc = -(H[0, 1] * u1 + d[0]) / H[0, 0]
+    u0_br = np.clip(u0_unc, lb[0], ub[0])
+
+    u1_unc = -(H[1, 0] * u0 + d[1]) / H[1, 1]
+    u1_br = np.clip(u1_unc, lb[1], ub[1])
+
+    diff0 = (
+        0.5 * H[0, 0] * (u0_br**2 - u0**2)
+        + H[0, 1] * (u0_br - u0) * u1
+        + d[0] * (u0_br - u0)
+    )
+    regret0 = np.maximum(diff0, 0.0)
+
+    diff1 = (
+        0.5 * H[1, 1] * (u1_br**2 - u1**2)
+        + H[1, 0] * u0 * (u1_br - u1)
+        + d[1] * (u1_br - u1)
+    )
+    regret1 = np.maximum(diff1, 0.0)
+
+    total_regret = float(np.sum(regret0 + regret1))
+    return float(np.log10(max(total_regret, 1e-12)))

@@ -37,6 +37,35 @@ class QuadraticGame(Game):
     optimal_payoffs: list[float]
 
 
+class QuadraticPayoffFunction:
+    def __init__(
+        self,
+        player_idx: int,
+        H_i: np.ndarray,
+        H_ii: np.ndarray,
+        d_i: np.ndarray,
+        c_i: float,
+        total_dim: int,
+        m: int,
+    ):
+        self.player_idx = player_idx
+        self.H_i = H_i
+        self.H_ii = H_ii
+        self.d_i = d_i
+        self.c_i = c_i
+        self.total_dim = total_dim
+        self.m = m
+        self.start_idx = player_idx * m
+        self.end_idx = self.start_idx + m
+        params = [inspect.Parameter(f"u_{k}", inspect.Parameter.POSITIONAL_OR_KEYWORD) for k in range(total_dim)]
+        self.__signature__ = inspect.Signature(params)
+
+    def __call__(self, *args: float) -> float:
+        u = np.asarray(args, dtype=float)
+        u_i = u[self.start_idx : self.end_idx]
+        return float(u_i @ (self.H_i @ u + self.d_i) - 0.5 * (u_i @ self.H_ii @ u_i) + self.c_i)
+
+
 def _make_payoff_function(
     player_idx: int,
     H_i: np.ndarray,
@@ -45,18 +74,8 @@ def _make_payoff_function(
     c_i: float,
     total_dim: int,
     m: int,
-) -> Callable[..., float]:
-    start_idx = player_idx * m
-    end_idx = start_idx + m
-    params = [inspect.Parameter(f"u_{k}", inspect.Parameter.POSITIONAL_OR_KEYWORD) for k in range(total_dim)]
-
-    def payoff(*args: float) -> float:
-        u = np.asarray(args, dtype=float)
-        u_i = u[start_idx:end_idx]
-        return float(u_i @ (H_i @ u + d_i) - 0.5 * (u_i @ H_ii @ u_i) + c_i)
-
-    payoff.__signature__ = inspect.Signature(params)
-    return payoff
+) -> QuadraticPayoffFunction:
+    return QuadraticPayoffFunction(player_idx, H_i, H_ii, d_i, c_i, total_dim, m)
 
 
 class QuadraticGameGenerator:

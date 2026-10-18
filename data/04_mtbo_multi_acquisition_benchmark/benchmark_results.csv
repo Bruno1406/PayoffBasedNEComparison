@@ -1,0 +1,13 @@
+method,ensemble_size,bo_steps,total_evals,wall_clock_time,default_loss,mean_tailored_loss,anomalies
+MTBO_Approach_A,1,18,72,11.32,-1.0502,-1.0502,0
+MTBO_Approach_B,1,18,72,11.10,-1.0502,-1.0502,0
+Optuna_Baseline,1,80,68,4.00,-1.0351,-1.0351,0
+MTBO_Approach_A,5,40,600,131.35,-0.6188,-0.7960,0
+MTBO_Approach_B,5,40,405,103.14,-0.6046,-0.8128,0
+Optuna_Baseline,5,80,326,25.95,-0.5982,-0.7010,0
+MTBO_Approach_A,10,40,1150,307.66,-0.2731,-0.4797,0
+MTBO_Approach_B,10,40,799,245.47,-0.2734,-0.4725,0
+Optuna_Baseline,10,80,656,60.19,-0.2848,-0.3704,0
+MTBO_Approach_A,20,40,2145,805.23,-0.1304,-0.3981,0
+MTBO_Approach_B,20,40,1388,498.45,-0.1466,-0.3850,1
+Optuna_Baseline,20,80,1531,143.89,-0.1140,-0.2452,0

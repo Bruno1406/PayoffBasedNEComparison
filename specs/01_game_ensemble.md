@@ -101,7 +101,7 @@ class QuadraticGame(Game):
     optimal_payoffs: list[float]    # Theoretical payoff values J_i(u*)
 ```
 
-- Each player's callable `payoff_function` in `payoff_functions` is automatically generated from $H$, $d$, and $c$, accepting flat actions $(u_1, \dots, u_{Nm})$ matching the signature required by [`Game`](file:///home/bruno/Documents/PayoffBasedNEComparison/payoffnash/common.py#L9).
+- Each player's callable `payoff_function` in `payoff_functions` is an instance of the top-level class `QuadraticPayoffFunction` (rather than a nested closure). This ensures that `QuadraticGame` is fully serializable via Python's standard `pickle` for multi-core parallel simulation (`ProcessPoolExecutor`).
 - Exposing `nash_equilibrium` and `optimal_payoffs` allows downstream MTBO and evaluation scripts (e.g., in `analysis.ipynb`) to compute cumulative regret directly and analytically without numerical approximations.
 
 ---

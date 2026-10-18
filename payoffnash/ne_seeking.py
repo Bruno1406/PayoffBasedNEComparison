@@ -170,6 +170,34 @@ class NESeeking(NEEstimator):
         )
 
 
+class NESeeking5D(NESeeking):
+    def __init__(
+        self,
+        game: Game,
+        k: np.ndarray,
+        a: np.ndarray,
+        omega1: float | np.ndarray,
+        dt: float = 0.001,
+        omega2_ratio: float = 1.35,
+        cutoff_ratio: float = 0.20,
+    ):
+        w1 = float(np.asarray(omega1).ravel()[0])
+        w2 = omega2_ratio * w1
+        omega = np.array([[w1], [w2]], dtype=float)
+        omega_h = np.array([cutoff_ratio * w1, cutoff_ratio * w2], dtype=float)
+        super().__init__(game=game, k=k, a=a, omega=omega, omega_h=omega_h, dt=dt)
+
+    @classmethod
+    def get_param_specs(cls, game: Game) -> dict[str, tuple[int, ...]]:
+        m = len(game.action_sets[0])
+        return {
+            "k": (game.N, m),
+            "a": (game.N, m),
+            "omega1": (1,),
+            "dt": (1,),
+        }
+
+
 if __name__ == "__main__":
     N = 2
     action_sets = [[(0.0, 300.0)], [(0.0, 300.0)]]
