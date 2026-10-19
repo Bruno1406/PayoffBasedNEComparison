@@ -59,13 +59,24 @@ class NESeeking(NEEstimator):
         max_rel_error: float = 0.0,
         num_steps: int = MAX_STEPS,
         time_limit: float = np.inf,
+        true_ne: Optional[np.ndarray] = None,
+        ne_tol: float = 0.0,
         **kwargs,
     ) -> EstimateHistory:
-        if (max_rel_error == 0.0) and num_steps == MAX_STEPS and time_limit == np.inf:
-            raise ValueError("At least one stopping criterion must be specified: max_rel_error, num_steps, or time_limit.")
+        if (
+            (max_rel_error == 0.0)
+            and num_steps == MAX_STEPS
+            and time_limit == np.inf
+            and (true_ne is None or ne_tol <= 0.0)
+        ):
+            raise ValueError(
+                "At least one stopping criterion must be specified: max_rel_error, num_steps, time_limit, or (true_ne, ne_tol)."
+            )
 
         track_time = (time_limit != np.inf)
         track_error = (max_rel_error > 0.0)
+        track_ne = (true_ne is not None and ne_tol > 0.0)
+        flat_true_ne = np.asarray(true_ne, dtype=float).ravel() if track_ne else None
 
         history_length = 10000 if num_steps == MAX_STEPS else num_steps + 1
         total_dim = self.game.N * self.m
@@ -146,6 +157,11 @@ class NESeeking(NEEstimator):
             u_hat = np.clip(u_hat + self.dt * self.k * proj_val, self.lb, self.ub)
             flat_u_hat = u_hat.ravel()
             u_hat_history[step, :] = flat_u_hat
+
+            if track_ne:
+                dist_ne = float(np.linalg.norm(flat_u_hat - flat_true_ne))
+                if dist_ne <= ne_tol:
+                    break
 
             if track_error:
                 current_window_sum += flat_u_hat

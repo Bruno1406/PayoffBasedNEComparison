@@ -2,6 +2,7 @@ from abc import ABC, abstractmethod
 from collections.abc import Callable
 from dataclasses import dataclass
 import inspect
+from typing import Any, Optional
 import numpy as np
 
 PayoffFunction = Callable[..., float]
@@ -54,7 +55,14 @@ class NEEstimator(ABC):
 
     @abstractmethod
     def estimate(
-        self, initial_actions: np.ndarray, **kwargs
+        self,
+        initial_actions: np.ndarray,
+        max_rel_error: float = 0.0,
+        num_steps: int = MAX_STEPS,
+        time_limit: float = np.inf,
+        true_ne: Optional[np.ndarray] = None,
+        ne_tol: float = 0.0,
+        **kwargs,
     ) -> EstimateHistory:
         pass
 

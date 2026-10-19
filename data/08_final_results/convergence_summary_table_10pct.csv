@@ -1,0 +1,3 @@
+Algorithm,Mean Total Log-Regret,Var Total Log-Regret,Mean Steps to Converge,Var Steps to Converge,Median Steps,Convergence Rate (<=10% Diam)
+ZOGrandientPlay (Default),0.7965660918352494,1.883253673953085,42516.27,33810266961.22939,32.5,97.0%
+NESeeking5D (Default),1.881416746691406,2.4903600278188853,8465.89,102140602.86656563,6572.5,100.0%
